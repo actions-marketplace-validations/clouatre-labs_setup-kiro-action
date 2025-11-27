@@ -1,0 +1,68 @@
+name: AI Analysis - Balanced Security
+on: [pull_request]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Setup Kiro CLI
+        uses: clouatre-labs/setup-kiro-action@v1
+        with:
+          enable-sigv4: true
+          aws-region: us-east-1
+
+      - name: Generate Diff Stats
+        run: git diff --stat origin/${{ github.base_ref }}...HEAD > diff-stats.txt
+
+      - name: AI Analysis of Diff Stats
+        run: |
+          echo "Review these changes:" > prompt.txt
+          cat diff-stats.txt >> prompt.txt
+          kiro-cli-chat chat --no-interactive "$(cat prompt.txt)" 2>/dev/null > review.md
+
+      - name: Upload Review Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ai-review
+          path: review.md
+
+  post:
+    needs: analyze
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download Review Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-review
+
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('review.md', 'utf8');
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

@@ -1,0 +1,45 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Coding agents (prevents accidental commit of AI instructions)
+AGENTS.md
+.aider*
+.amazonq/
+.bolt/
+.claude/
+CLAUDE.md
+.codex/
+.cursor/
+.goose*
+.kiro/
+opencode.json
+.windsurf/
+
+# Environment files
+.env
+.env.local
+*.local.env
+
+# Node.js (for local testing with act)
+node_modules/
+
+# Python (for testing examples)
+__pycache__/
+.pytest_cache/
+*.py[cod]

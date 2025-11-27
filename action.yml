@@ -1,0 +1,143 @@
+name: 'Setup Kiro CLI'
+description: 'Install and cache Kiro CLI for GitHub Actions workflows'
+author: 'Hugues Clouâtre'
+
+keywords:
+  - ai
+  - kiro
+  - kiro-cli
+  - aws
+  - cli
+  - automation
+
+inputs:
+  version:
+    description: 'Kiro CLI version to install'
+    required: false
+    default: '1.21.0'
+  aws-region:
+    description: 'AWS region for Kiro CLI operations'
+    required: false
+    default: 'us-east-1'
+  enable-sigv4:
+    description: 'Enable SIGV4 authentication mode'
+    required: false
+    default: 'false'
+  verify-checksum:
+    description: 'Verify SHA256 checksum of downloaded binary'
+    required: false
+    default: 'false'
+
+outputs:
+  kiro-version:
+    description: 'Installed Kiro CLI version'
+    value: ${{ steps.install.outputs.version }}
+  kiro-path:
+    description: 'Path to Kiro CLI binary directory'
+    value: ${{ steps.setup-path.outputs.path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check platform support
+      shell: bash
+      run: |
+        OS="${{ runner.os }}"
+        if [ "$OS" != "Linux" ]; then
+          echo "::error::Kiro CLI action only supports Linux runners. Use the official install script for macOS: curl -fsSL https://cli.kiro.dev/install | bash"
+          exit 1
+        fi
+
+    - name: Cache Kiro CLI binaries
+      id: cache-kiro
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/bin/kiro-cli-chat
+        key: kiro-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Install Kiro CLI
+      id: install
+      if: steps.cache-kiro.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        echo "::group::Installing Kiro CLI ${{ inputs.version }}"
+        mkdir -p ~/.local/bin
+        
+        # Determine architecture
+        ARCH="${{ runner.arch }}"
+        if [ "$ARCH" = "X64" ]; then
+          KIRO_ARCH="x86_64"
+        elif [ "$ARCH" = "ARM64" ]; then
+          KIRO_ARCH="aarch64"
+        else
+          echo "::error::Unsupported architecture: $ARCH"
+          exit 1
+        fi
+        
+        # Download URL (Linux only, always from /latest/ path)
+        DOWNLOAD_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-${KIRO_ARCH}-linux.zip"
+        echo "Downloading from: $DOWNLOAD_URL"
+        
+        # Download and extract
+        curl --proto '=https' --tlsv1.2 -sSfL "$DOWNLOAD_URL" -o kiro.zip
+        
+        # Verify checksum if requested
+        if [ "${{ inputs.verify-checksum }}" = "true" ]; then
+          echo "Downloading SHA256 checksum..."
+          curl --proto '=https' --tlsv1.2 -sSfL "${DOWNLOAD_URL}.sha256" -o kiro.zip.sha256
+          
+          EXPECTED_SHA=$(cat kiro.zip.sha256)
+          ACTUAL_SHA=$(shasum -a 256 kiro.zip | cut -d' ' -f1)
+          
+          if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+            echo "::error::SHA256 mismatch! Expected: $EXPECTED_SHA, Got: $ACTUAL_SHA"
+            exit 1
+          fi
+          echo "SHA256 verification passed"
+        fi
+        
+        unzip -q kiro.zip
+        
+        # Get actual version from BUILD-INFO if available
+        if [ -f kirocli/BUILD-INFO ]; then
+          ACTUAL_VERSION=$(grep '^BUILD_VERSION=' kirocli/BUILD-INFO | cut -d= -f2)
+          echo "version=${ACTUAL_VERSION}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+        fi
+        
+        # Copy only kiro-cli-chat binary (sufficient for CI/CD)
+        cp kirocli/bin/kiro-cli-chat ~/.local/bin/
+        chmod +x ~/.local/bin/kiro-cli-chat
+        
+        # Cleanup
+        rm -rf kirocli kiro.zip
+        
+        echo "::endgroup::"
+
+    - name: Setup PATH
+      id: setup-path
+      shell: bash
+      run: |
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        echo "path=$HOME/.local/bin" >> $GITHUB_OUTPUT
+
+    - name: Configure SIGV4 authentication
+      if: inputs.enable-sigv4 == 'true'
+      shell: bash
+      run: |
+        echo "AMAZON_Q_SIGV4=true" >> $GITHUB_ENV
+        echo "AWS_REGION=${{ inputs.aws-region }}" >> $GITHUB_ENV
+
+    - name: Verify installation
+      shell: bash
+      run: |
+        echo "::group::Verifying Kiro CLI installation"
+        kiro-cli-chat --version
+        echo "Installed binary:"
+        ls -lh ~/.local/bin/kiro-cli-chat
+        echo "::endgroup::"
+
+branding:
+  icon: 'terminal'
+  color: 'purple'
