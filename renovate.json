@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^action\\.yml$/"
+      ],
+      "matchStrings": [
+        "default:\\s*['\"](?<currentValue>\\d+\\.\\d+\\.\\d+)['\"]"
+      ],
+      "depNameTemplate": "kiro-cli",
+      "datasourceTemplate": "custom.kiro"
+    }
+  ],
+  "customDatasources": {
+    "kiro": {
+      "defaultRegistryUrlTemplate": "https://desktop-release.q.us-east-1.amazonaws.com/latest/manifest.json",
+      "transformTemplates": [
+        "{\"releases\": [{\"version\": version}]}"
+      ]
+    }
+  },
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
+    }
+  ],
+  "dependencyDashboard": false
+}
