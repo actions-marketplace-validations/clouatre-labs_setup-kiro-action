@@ -14,7 +14,7 @@ inputs:
   version:
     description: 'Kiro CLI version to install'
     required: false
-    default: '1.24.0'
+    default: '1.27.3'
   aws-region:
     description: 'AWS region for Kiro CLI operations'
     required: false
@@ -50,7 +50,7 @@ runs:
 
     - name: Cache Kiro CLI binaries
       id: cache-kiro
-      uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ~/.local/bin/kiro-cli-chat
         key: kiro-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
