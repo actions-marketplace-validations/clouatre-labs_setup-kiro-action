@@ -1,5 +1,5 @@
 name: 'Setup Kiro CLI'
-description: 'Install and cache Kiro CLI for GitHub Actions workflows'
+description: 'Install and cache Kiro CLI (formerly Amazon Q Developer CLI) for GitHub Actions workflows'
 author: 'Hugues Clouâtre'
 
 keywords:
@@ -14,7 +14,7 @@ inputs:
   version:
     description: 'Kiro CLI version to install'
     required: false
-    default: '1.28.0'
+    default: '2.3.0'
   aws-region:
     description: 'AWS region for Kiro CLI operations'
     required: false
@@ -25,6 +25,10 @@ inputs:
     default: 'false'
   verify-checksum:
     description: 'Verify SHA256 checksum of downloaded binary'
+    required: false
+    default: 'true'
+  musl:
+    description: 'Use musl-linked binary for older glibc environments (e.g. Alpine Linux)'
     required: false
     default: 'false'
 
@@ -50,16 +54,16 @@ runs:
 
     - name: Cache Kiro CLI binaries
       id: cache-kiro
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ~/.local/bin/kiro-cli-chat
-        key: kiro-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+        key: kiro-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.musl == 'true' && 'musl' || 'glibc' }}
 
     - name: Install Kiro CLI
       id: install
       if: steps.cache-kiro.outputs.cache-hit != 'true'
       shell: bash
-      run: |
+      run: | # zizmor: ignore[template-injection]
         echo "::group::Installing Kiro CLI ${{ inputs.version }}"
         mkdir -p ~/.local/bin
         
@@ -75,7 +79,11 @@ runs:
         fi
         
         # Download URL (Linux only, versioned path)
-        DOWNLOAD_URL="https://desktop-release.q.us-east-1.amazonaws.com/${{ inputs.version }}/kirocli-${KIRO_ARCH}-linux.zip"
+        MUSL_SUFFIX=""
+        if [ "${{ inputs.musl }}" = "true" ]; then
+          MUSL_SUFFIX="-musl"
+        fi
+        DOWNLOAD_URL="https://desktop-release.q.us-east-1.amazonaws.com/${{ inputs.version }}/kirocli-${KIRO_ARCH}-linux${MUSL_SUFFIX}.zip"
         echo "Downloading from: $DOWNLOAD_URL"
         
         # Download and extract
@@ -87,6 +95,10 @@ runs:
           curl --proto '=https' --tlsv1.2 -sSfL "${DOWNLOAD_URL}.sha256" -o kiro.zip.sha256
           
           EXPECTED_SHA=$(cat kiro.zip.sha256)
+          if ! [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Invalid SHA256 format in checksum file: '$EXPECTED_SHA'"
+            exit 1
+          fi
           ACTUAL_SHA=$(shasum -a 256 kiro.zip | cut -d' ' -f1)
           
           if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
@@ -101,6 +113,10 @@ runs:
         # Get actual version from BUILD-INFO if available
         if [ -f kirocli/BUILD-INFO ]; then
           ACTUAL_VERSION=$(grep '^BUILD_VERSION=' kirocli/BUILD-INFO | cut -d= -f2)
+          if [ -z "$ACTUAL_VERSION" ]; then
+            echo "::warning::BUILD_VERSION not found in kirocli/BUILD-INFO, using input version"
+            ACTUAL_VERSION="${{ inputs.version }}"
+          fi
           echo "version=${ACTUAL_VERSION}" >> $GITHUB_OUTPUT
         else
           echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
@@ -111,22 +127,23 @@ runs:
         chmod +x ~/.local/bin/kiro-cli-chat
         
         # Cleanup
-        rm -rf kirocli kiro.zip
+        rm -rf kirocli kiro.zip kiro.zip.sha256
         
         echo "::endgroup::"
 
     - name: Setup PATH
       id: setup-path
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         echo "$HOME/.local/bin" >> $GITHUB_PATH
         echo "path=$HOME/.local/bin" >> $GITHUB_OUTPUT
 
     - name: Configure SIGV4 authentication
       if: inputs.enable-sigv4 == 'true'
       shell: bash
-      run: |
-        echo "AMAZON_Q_SIGV4=true" >> $GITHUB_ENV
+      run: | # zizmor: ignore[github-env,template-injection]
+        echo "::warning::SIGV4 authentication (AMAZON_Q_SIGV4) is not yet implemented in kiro-cli-chat. The environment variable will be set but has no effect. Track upstream progress at https://github.com/kirodotdev/Kiro/issues/5938. For working SIGV4 support, use clouatre-labs/setup-q-cli-action instead."
+        echo "AMAZON_Q_SIGV4=1" >> $GITHUB_ENV
         echo "AWS_REGION=${{ inputs.aws-region }}" >> $GITHUB_ENV
 
     - name: Verify installation

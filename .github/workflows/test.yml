@@ -3,10 +3,12 @@ name: Test Action
 on:
   push:
     branches: [main]
+    paths:
+      - 'action.yml'
+      - '.github/workflows/test.yml'
   pull_request:
     branches: [main]
   merge_group:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -17,13 +19,36 @@ permissions:
   contents: read
 
 jobs:
+  test-ubuntu-arm64:
+    name: Test on Ubuntu ARM64
+    if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Test action
+        uses: ./
+        id: kiro
+
+      - name: Verify installation
+        run: |
+          echo "Kiro version: ${{ steps.kiro.outputs.kiro-version }}"
+          echo "Kiro path: ${{ steps.kiro.outputs.kiro-path }}"
+          kiro-cli-chat --version
+
+      - name: Test kiro-cli-chat command
+        run: |
+          which kiro-cli-chat
+          kiro-cli-chat --help
+
   test-ubuntu-x64:
     name: Test on Ubuntu x64
     if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Test action
         uses: ./
@@ -43,10 +68,10 @@ jobs:
   test-cache:
     name: Test caching
     if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: First run (cache miss)
         uses: ./
@@ -64,10 +89,10 @@ jobs:
   test-sigv4-config:
     name: Test SIGV4 configuration
     if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Test with SIGV4 enabled
         uses: ./
@@ -77,7 +102,7 @@ jobs:
 
       - name: Verify SIGV4 environment variables
         run: |
-          if [ "$AMAZON_Q_SIGV4" != "true" ]; then
+          if [ "$AMAZON_Q_SIGV4" != "1" ]; then
             echo "ERROR: AMAZON_Q_SIGV4 not set correctly"
             exit 1
           fi
@@ -91,10 +116,10 @@ jobs:
   test-checksum-verification:
     name: Test SHA256 verification
     if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Test with verification enabled
         uses: ./
@@ -105,3 +130,49 @@ jobs:
         run: |
           kiro-cli-chat --version
           echo "Checksum verification passed"
+
+  test-musl:
+    name: Test musl variant
+    if: github.event_name == 'push' || github.event.pull_request.draft == false || github.event_name == 'merge_group'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Test with musl enabled
+        uses: ./
+        with:
+          musl: true
+
+      - name: Verify installation
+        run: |
+          kiro-cli-chat --version
+          echo "musl variant verified"
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          annotations: true
+          min-severity: high
+
+  ci-result:
+    name: CI Result
+    runs-on: ubuntu-24.04-arm
+    if: always()
+    needs: [test-ubuntu-arm64, test-ubuntu-x64, test-cache, test-sigv4-config, test-checksum-verification, test-musl, zizmor]
+    permissions: {}
+    steps:
+      - name: Verify all jobs passed or were skipped
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::One or more CI jobs failed or were cancelled."
+            exit 1
+          fi
+          echo "All CI jobs passed or were skipped."
